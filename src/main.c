@@ -10,7 +10,7 @@
 #include "vec2.h"
 #include "draw.h"
 
-#define TICK_TIME 500
+#define TICK_TIME 750
 
 #define DEBUG_PRINT(_a, _b) do {                                               \
         sprintf(buf, _a, _b);                                                  \
@@ -190,6 +190,7 @@ bool solid_below(Tetronimo *tetronimo, Board *board)
                 Tetronimo *t = &board->entities[k];
                 if (t->deleted) continue;
                 if (!t->grounded) continue;
+                if (t->id == tetronimo->id) continue;
 
                 for (int m = 0; m < t->bounding_box.width; m += 1)
                 {
@@ -597,6 +598,8 @@ void update(State *state, Uint64 dt)
                             }
                         }
                     }
+
+                    // Teleport down any lines above this one.
 
                     // TODO(bkaylor): At some point, should clean up wholly deleted tetronimoes.
                     // t->deleted = true;
