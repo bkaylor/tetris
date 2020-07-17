@@ -10,7 +10,7 @@
 #include "vec2.h"
 #include "draw.h"
 
-#define TICK_TIME 750
+#define TICK_TIME 650
 
 #define DEBUG_PRINT(_a, _b) do {                                               \
         sprintf(buf, _a, _b);                                                  \
@@ -45,15 +45,31 @@ typedef struct {
 
     vec2 position;
     float rotation;
+    SDL_Color color;
 
     BoundingBox bounding_box;
 } Tetronimo;
 
 typedef struct {
+    int id;
+    SDL_Color color;
+    bool marked_for_delete;
+
+    bool exists;
+
+    vec2 position;
+} Tetron;
+
+typedef struct {
     Tetronimo entities[1000];
     int entity_count;
 
+    Tetron cells[20*10];
+    int cell_count;
+
     Tetronimo *active;
+    Tetronimo *ghost;
+    Tetronimo_Type next;
 
     int width;
     int height;
@@ -62,6 +78,7 @@ typedef struct {
     float cell_size;
 
     bool check_for_clear;
+    bool there_are_rows_to_be_cleared;
     int score;
 } Board;
 
@@ -95,6 +112,182 @@ typedef struct {
     bool quit;
 } State;
 
+SDL_Color get_color(Tetronimo_Type type)
+{
+    SDL_Color c;
+
+    switch (type)
+    {
+        case I:   c = (SDL_Color){0,   255, 255, 255}; break;
+        case O:   c = (SDL_Color){255, 255, 0,   255}; break;
+        case T:   c = (SDL_Color){128, 0,   128, 255}; break;
+        case J:   c = (SDL_Color){0,   0,   255, 255}; break;
+        case L:   c = (SDL_Color){255, 165, 0,   255}; break;
+        case S:   c = (SDL_Color){0,   255, 0,   255}; break;
+        case Z:   c = (SDL_Color){255, 0,   0,   255}; break;
+        case DOT: c = (SDL_Color){35,  35,  35,  255}; break;
+    }
+
+    return c;
+}
+
+Tetronimo make_tetronimo(Tetronimo_Type type, vec2 position)
+{
+    Tetronimo t;
+
+    t.type = type;
+
+    t.color = get_color(t.type);
+    t.rotation = 0.0f;
+    t.position = position;
+    t.grounded = false;
+    t.deleted = false;
+
+    BoundingBox box;
+    switch (t.type)
+    {
+        case I: {
+            box.width = 4;
+            box.height = 4;
+            box.pivot = vec2_make(2.0f, 2.0f);
+            bool cells[16] = {
+                0, 0, 0, 0, 
+                1, 1, 1, 1, 
+                0, 0, 0, 0, 
+                0, 0, 0, 0
+            };
+
+            memcpy(box.cells, cells, sizeof(bool) * 16);
+        } break;
+
+        case O: {
+            box.width = 4;
+            box.height = 3;
+            box.pivot = vec2_make(2.0f, 1.0f);
+            bool cells[16] = {
+                0, 1, 1, 0, 
+                0, 1, 1, 0, 
+                0, 0, 0, 0, 
+            };
+
+            memcpy(box.cells, cells, sizeof(bool) * 16);
+        } break;
+
+        case T: {
+            box.width = 3;
+            box.height = 3;
+            box.pivot = vec2_make(1.5f, 1.5f);
+            bool cells[16] = {
+                0, 1, 0,
+                1, 1, 1,
+                0, 0, 0,
+            };
+
+            memcpy(box.cells, cells, sizeof(bool) * 16);
+        } break;
+
+        case J: {
+            box.width = 3;
+            box.height = 3;
+            box.pivot = vec2_make(1.5f, 1.5f);
+            bool cells[16] = {
+                0, 1, 0,
+                0, 1, 0,
+                1, 1, 0,
+            };
+
+            memcpy(box.cells, cells, sizeof(bool) * 16);
+        } break;
+
+        case L: {
+            box.width = 3;
+            box.height = 3;
+            box.pivot = vec2_make(1.5f, 1.5f);
+            bool cells[16] = {
+                0, 1, 0,
+                0, 1, 0,
+                0, 1, 1,
+            };
+
+            memcpy(box.cells, cells, sizeof(bool) * 16);
+        } break;
+
+        case S: {
+            box.width = 3;
+            box.height = 3;
+            box.pivot = vec2_make(1.5f, 1.5f);
+            bool cells[16] = {
+                0, 1, 1,
+                1, 1, 0,
+                0, 0, 0,
+            };
+
+            memcpy(box.cells, cells, sizeof(bool) * 16);
+        } break;
+
+        case Z: {
+            box.width = 3;
+            box.height = 3;
+            box.pivot = vec2_make(1.5f, 1.5f);
+            bool cells[16] = {
+                1, 1, 0,
+                0, 1, 1,
+                0, 0, 0,
+            };
+
+            memcpy(box.cells, cells, sizeof(bool) * 16);
+        } break;
+
+        default: {
+            box.width = 3;
+            box.height = 3;
+            box.pivot = vec2_make(1.5f, 1.5f);
+            bool cells[16] = {
+                0, 0, 0,
+                0, 1, 0,
+                0, 0, 0,
+            };
+
+            memcpy(box.cells, cells, sizeof(bool) * 16);
+        } break;
+    }
+
+    t.bounding_box = box;
+
+    return t;
+}
+
+bool solid_below(Tetronimo *tetronimo, Board *board)
+{
+    for (int i = 0; i < tetronimo->bounding_box.width; i += 1)
+    {
+        for (int j = 0; j < tetronimo->bounding_box.height; j += 1)
+        {
+            int index = get_2d_index(i, j, tetronimo->bounding_box.width);
+            if (!tetronimo->bounding_box.cells[index]) continue;
+
+            int width = i + tetronimo->position.x;
+            int height = j + tetronimo->position.y;
+
+            // Check if we hit the floor.
+            if (height == board->height-1) return true;
+
+            for (int k = 0; k < board->cell_count; k += 1)
+            {
+                Tetron *t = &board->cells[k];
+                if (!t->exists) continue;
+
+                if (t->position.x == width && t->position.y == (height+1))
+                {
+                    return true;
+                }
+            }
+        }
+    }
+
+    return false;
+}
+
 void render(SDL_Renderer *renderer, State state, TTF_Font *font)
 {
     SDL_RenderClear(renderer);
@@ -107,30 +300,78 @@ void render(SDL_Renderer *renderer, State state, TTF_Font *font)
     SDL_SetRenderDrawColor(renderer, 35, 35, 35, 255);
     SDL_RenderFillRect(renderer, &state.board.rect);
 
-    // Draw the entities.
-    for (int i = 0; i < state.board.entity_count; i += 1)
+    float cell_padding = 0.02f;
+    float cell_padding_abs = cell_padding * state.board.cell_size;
+
+    // Draw the tetrons.
+    for (int i = 0; i < state.board.cell_count; i += 1)
     {
-        Tetronimo *t = &state.board.entities[i];
+        Tetron *t = &state.board.cells[i];
+        if (!t->exists) continue;
 
-        if (t->deleted) continue;
+        SDL_Rect rect = (SDL_Rect){
+            state.board.rect.x + ((t->position.x) * state.board.cell_size),
+            state.board.rect.y + ((t->position.y) * state.board.cell_size),
+            state.board.cell_size,
+            state.board.cell_size,
+        };
 
-        switch (t->type)
+        rect.x += cell_padding_abs;
+        rect.y += cell_padding_abs;
+        rect.w -= 2*cell_padding_abs;
+        rect.h -= 2*cell_padding_abs;
+
+        SDL_SetRenderDrawColor(renderer, t->color.r, t->color.g, t->color.b, 255);
+        SDL_RenderFillRect(renderer, &rect);
+    }
+
+    if (state.board.active)
+    {
+        Tetronimo *t = state.board.active;
+
+        // Draw the tetronimo's drop ghost
+        SDL_SetRenderDrawColor(renderer, t->color.r/5, t->color.g/5, t->color.b/5, 255);
+
+        // TODO(bkaylor): We could build the ghost in the not-render-function.
+        Tetronimo ghost = *t;
+        while (!solid_below(&ghost, &state.board))
         {
-            case I:   SDL_SetRenderDrawColor(renderer, 0,   255, 255, 255); break;
-            case O:   SDL_SetRenderDrawColor(renderer, 255, 255, 0,   255); break;
-            case T:   SDL_SetRenderDrawColor(renderer, 128, 0,   128, 255); break;
-            case J:   SDL_SetRenderDrawColor(renderer, 0,   0,   255, 255); break;
-            case L:   SDL_SetRenderDrawColor(renderer, 255, 165, 0,   255); break;
-            case S:   SDL_SetRenderDrawColor(renderer, 0,   255, 0,   255); break;
-            case Z:   SDL_SetRenderDrawColor(renderer, 255, 0,   0,   255); break;
-            case DOT: SDL_SetRenderDrawColor(renderer, 35,  35,  35,  255); break;
+            ghost.position.y += 1;
         }
+
+        for (int i = 0; i < ghost.bounding_box.width; i += 1)
+        {
+            for (int j = 0; j < ghost.bounding_box.height; j += 1)
+            {
+                if (ghost.bounding_box.cells[get_2d_index(i, j, ghost.bounding_box.width)])
+                {
+                    SDL_Rect rect = (SDL_Rect){
+                        state.board.rect.x + ((ghost.position.x + i) * state.board.cell_size),
+                        state.board.rect.y + ((ghost.position.y + j) * state.board.cell_size),
+                        state.board.cell_size,
+                        state.board.cell_size,
+                    };
+
+                    /*
+                    rect.x += cell_padding_abs;
+                    rect.y += cell_padding_abs;
+                    rect.w -= 2*cell_padding_abs;
+                    rect.h -= 2*cell_padding_abs;
+                    */
+
+                    SDL_RenderFillRect(renderer, &rect);
+                }
+            }
+        }
+
+        // Draw the tetronimo.
+        SDL_SetRenderDrawColor(renderer, t->color.r, t->color.g, t->color.b, 255);
 
         for (int i = 0; i < t->bounding_box.width; i += 1)
         {
             for (int j = 0; j < t->bounding_box.height; j += 1)
             {
-                if (t->bounding_box.cells[(j*t->bounding_box.width) + i])
+                if (t->bounding_box.cells[get_2d_index(i, j, t->bounding_box.width)])
                 {
                     SDL_Rect rect = (SDL_Rect){
                         state.board.rect.x + ((t->position.x + i) * state.board.cell_size),
@@ -139,12 +380,17 @@ void render(SDL_Renderer *renderer, State state, TTF_Font *font)
                         state.board.cell_size,
                     };
 
-                    SDL_RenderFillRect(renderer, &rect);
+                    rect.x += cell_padding_abs;
+                    rect.y += cell_padding_abs;
+                    rect.w -= 2*cell_padding_abs;
+                    rect.h -= 2*cell_padding_abs;
 
+                    SDL_RenderFillRect(renderer, &rect);
                 }
             }
         }
 
+        /*
         SDL_SetRenderDrawColor(renderer, 255, 100, 255, 255);
         draw_circle(renderer, 
                     state.board.rect.x + ((t->position.x) * state.board.cell_size),
@@ -156,58 +402,133 @@ void render(SDL_Renderer *renderer, State state, TTF_Font *font)
                     state.board.rect.x + ((t->position.x + t->bounding_box.pivot.x) * state.board.cell_size),
                     state.board.rect.y + ((t->position.y + t->bounding_box.pivot.y) * state.board.cell_size),
                     3);
+        */
+    }
+
+    // Draw the next tetron
+    SDL_Rect next_rect = (SDL_Rect){
+        state.board.rect.x + (state.board.rect.w * 1.2),
+        state.board.rect.y + (state.board.rect.h / 4) - (state.board.cell_size * 2),
+        state.board.cell_size * 4,
+        state.board.cell_size * 4,
+    };
+
+    Tetronimo next = make_tetronimo(state.board.next, vec2_make(0.0f, 0.0f));
+    SDL_SetRenderDrawColor(renderer, next.color.r, next.color.g, next.color.b, 255);
+
+    for (int i = 0; i < next.bounding_box.width; i += 1)
+    {
+        for (int j = 0; j < next.bounding_box.height; j += 1)
+        {
+            if (next.bounding_box.cells[get_2d_index(i, j, next.bounding_box.width)])
+            {
+                SDL_Rect rect = (SDL_Rect){
+                    next_rect.x + ((next.position.x + i) * state.board.cell_size),
+                    next_rect.y + ((next.position.y + j) * state.board.cell_size),
+                    state.board.cell_size,
+                    state.board.cell_size,
+                };
+
+                rect.x += cell_padding_abs;
+                rect.y += cell_padding_abs;
+                rect.w -= 2*cell_padding_abs;
+                rect.h -= 2*cell_padding_abs;
+
+                SDL_RenderFillRect(renderer, &rect);
+            }
+        }
     }
 
     // Draw text.
     char buf[50];
     int y = 0;
 
-    DEBUG_PRINT("%d ms", state.turn_timer);
+    // DEBUG_PRINT("%d ms", state.turn_timer);
     DEBUG_PRINT("%d lines", state.board.score);
-    DEBUG_PRINT("%d entities", state.board.entity_count);
+    // DEBUG_PRINT("%d entities", state.board.entity_count);
 
     SDL_RenderPresent(renderer);
 }
 
-bool solid_below(Tetronimo *tetronimo, Board *board)
+int get_2d_index(int w, int h, int width)
+{
+    return(h*width + w);
+}
+
+void copy_tetron_to(Tetron *source, Tetron *destination)
+{
+    destination->id = source->id;
+    destination->color = source->color;
+    destination->marked_for_delete = source->marked_for_delete;
+    destination->exists = source->exists;
+    // destination->position = source->position;
+}
+
+void transform_to_tetrons(Tetronimo *tetronimo, Board *board)
 {
     for (int i = 0; i < tetronimo->bounding_box.width; i += 1)
     {
         for (int j = 0; j < tetronimo->bounding_box.height; j += 1)
         {
-            int index = j*tetronimo->bounding_box.width + i;
+            int index = get_2d_index(i, j, tetronimo->bounding_box.width);
             if (!tetronimo->bounding_box.cells[index]) continue;
 
-            int width = i + tetronimo->position.x;
-            int height = j + tetronimo->position.y;
+            int x = tetronimo->position.x + i;
+            int y = tetronimo->position.y + j;
 
-            if (height == board->height - 1) return true;
+            Tetron t;
+            t.id = 0;
+            t.color = tetronimo->color;
+            t.marked_for_delete = false;
+            t.exists = true;
+            t.position = vec2_make(x, y);
 
-            if (board->entity_count <= 1) continue;
+            board->cells[get_2d_index(x, y, 10)] = t;
+            // board->cell_count += 1;
+        }
+    }
+}
 
-            for (int k = 0; k < board->entity_count - 1; k += 1)
+bool collides_with_wall(Tetronimo *a, Board *b)
+{
+    for (int j = 0; j < a->bounding_box.width; j += 1)
+    {
+        for (int k = 0; k < a->bounding_box.height; k += 1)
+        {
+            int index = get_2d_index(j, k, a->bounding_box.width);
+
+            if (!a->bounding_box.cells[index]) continue;
+
+            int width = j + a->position.x;
+            int height = k + a->position.y;
+
+            if (width < 0 || width >= b->width)
             {
-                Tetronimo *t = &board->entities[k];
-                if (t->deleted) continue;
-                if (!t->grounded) continue;
-                if (t->id == tetronimo->id) continue;
+                return true;
+            }
+        }
+    }
 
-                for (int m = 0; m < t->bounding_box.width; m += 1)
-                {
-                    for (int n = 0; n < t->bounding_box.width; n += 1)
-                    {
-                        int inner_index = n*t->bounding_box.width + m;
-                        if (!t->bounding_box.cells[inner_index]) continue;
+    return false;
+}
 
-                        int inner_width = m + t->position.x;
-                        int inner_height = n + t->position.y;
+bool collides_with_cells(Tetronimo *a, Board *b)
+{
+    for (int j = 0; j < a->bounding_box.width; j += 1)
+    {
+        for (int k = 0; k < a->bounding_box.height; k += 1)
+        {
+            int index = get_2d_index(j, k, a->bounding_box.width);
 
-                        if (inner_width == width && inner_height == (height + 1)) 
-                        {
-                            return true;
-                        }
-                    }
-                }
+            if (!a->bounding_box.cells[index]) continue;
+
+            int width = j + a->position.x;
+            int height = k + a->position.y;
+
+            int world_index = get_2d_index(width, height, 10);
+            for (int i = 0; i < b->cell_count; i += 1)
+            {
+                if (b->cells[i].exists && i == world_index) return true;
             }
         }
     }
@@ -238,8 +559,20 @@ void update(State *state, Uint64 dt)
         b->rect.x = (state->window.x/2) - (b->rect.w/2);
 
         b->active = NULL;
+        b->ghost = NULL;
         b->check_for_clear = false;
+        b->there_are_rows_to_be_cleared = false;
         b->score = 0;
+
+        b->next = (rand() % 7) + 1;
+
+        for (int i = 0; i < 20*10; i += 1)
+        {
+            b->cells[i].exists = false;
+            b->cells[i].marked_for_delete = false;
+        }
+
+        b->cell_count = 20*10;
 
         state->do_drop             = false;
         state->do_left_move        = false;
@@ -256,129 +589,14 @@ void update(State *state, Uint64 dt)
     if (!b->active)
     {
         // Spawn a tetronimo.
-        Tetronimo t;
-        t.type = (rand() % 7) + 1;
-        t.rotation = 0.0f;
-        t.position = vec2_make(b->width/2, 0 /*b->height*/);
-        t.grounded = false;
-        t.id = b->entity_count;
-        t.deleted = false;
-
-        BoundingBox box;
-        switch (t.type)
-        {
-            case I: {
-                box.width = 4;
-                box.height = 4;
-                box.pivot = vec2_make(2.0f, 2.0f);
-                bool cells[16] = {
-                    0, 0, 0, 0, 
-                    1, 1, 1, 1, 
-                    0, 0, 0, 0, 
-                    0, 0, 0, 0
-                };
-
-                memcpy(box.cells, cells, sizeof(bool) * 16);
-            } break;
-
-            case O: {
-                box.width = 4;
-                box.height = 3;
-                box.pivot = vec2_make(2.0f, 1.0f);
-                bool cells[16] = {
-                    0, 1, 1, 0, 
-                    0, 1, 1, 0, 
-                    0, 0, 0, 0, 
-                };
-
-                memcpy(box.cells, cells, sizeof(bool) * 16);
-            } break;
-
-            case T: {
-                box.width = 3;
-                box.height = 3;
-                box.pivot = vec2_make(1.5f, 1.5f);
-                bool cells[16] = {
-                    0, 1, 0,
-                    1, 1, 1,
-                    0, 0, 0,
-                };
-
-                memcpy(box.cells, cells, sizeof(bool) * 16);
-            } break;
-
-            case J: {
-                box.width = 3;
-                box.height = 3;
-                box.pivot = vec2_make(1.5f, 1.5f);
-                bool cells[16] = {
-                    0, 1, 0,
-                    0, 1, 0,
-                    1, 1, 0,
-                };
-
-                memcpy(box.cells, cells, sizeof(bool) * 16);
-            } break;
-
-            case L: {
-                box.width = 3;
-                box.height = 3;
-                box.pivot = vec2_make(1.5f, 1.5f);
-                bool cells[16] = {
-                    0, 1, 0,
-                    0, 1, 0,
-                    0, 1, 1,
-                };
-
-                memcpy(box.cells, cells, sizeof(bool) * 16);
-            } break;
-
-            case S: {
-                box.width = 3;
-                box.height = 3;
-                box.pivot = vec2_make(1.5f, 1.5f);
-                bool cells[16] = {
-                    0, 1, 1,
-                    1, 1, 0,
-                    0, 0, 0,
-                };
-
-                memcpy(box.cells, cells, sizeof(bool) * 16);
-            } break;
-
-            case Z: {
-                box.width = 3;
-                box.height = 3;
-                box.pivot = vec2_make(1.5f, 1.5f);
-                bool cells[16] = {
-                    1, 1, 0,
-                    0, 1, 1,
-                    0, 0, 0,
-                };
-
-                memcpy(box.cells, cells, sizeof(bool) * 16);
-            } break;
-
-            default: {
-                box.width = 3;
-                box.height = 3;
-                box.pivot = vec2_make(1.5f, 1.5f);
-                bool cells[16] = {
-                    0, 0, 0,
-                    0, 1, 0,
-                    0, 0, 0,
-                };
-
-                memcpy(box.cells, cells, sizeof(bool) * 16);
-            } break;
-        }
-
-
-        t.bounding_box = box;
+        Tetronimo t = make_tetronimo(b->next, vec2_make(b->width/2, 0));
+        b->next = (rand() % 7) + 1;
 
         b->entities[b->entity_count] = t;
         b->active = &(b->entities[b->entity_count]);
         b->entity_count += 1;
+
+        if (collides_with_cells(&t, b)) state->reset = true;
     }
 
     // Handle inputs on the active tetronimo.
@@ -388,51 +606,23 @@ void update(State *state, Uint64 dt)
 
         if (state->do_left_move)
         {
-            bool can_go = true;
-            for (int j = 0; j < a->bounding_box.width; j += 1)
+            a->position.x -= 1;
+            if (collides_with_wall(a, b) || collides_with_cells(a, b)) 
             {
-                for (int k = 0; k < a->bounding_box.height; k += 1)
-                {
-                    int index = k*a->bounding_box.width + j;
-                    if (!a->bounding_box.cells[index]) continue;
-
-                    int width = j + a->position.x;
-                    int height = k + a->position.y;
-
-                    if (width <= 0)
-                    {
-                        can_go = false;
-                        break;
-                    }
-                }
+                a->position.x += 1;
             }
 
-            if (can_go) a->position.x -= 1;
             state->do_left_move = false;
         }
 
         if (state->do_right_move)
         {
-            bool can_go = true;
-            for (int j = 0; j < a->bounding_box.width; j += 1)
+            a->position.x += 1;
+            if (collides_with_wall(a, b) || collides_with_cells(a, b)) 
             {
-                for (int k = 0; k < a->bounding_box.height; k += 1)
-                {
-                    int index = k*a->bounding_box.width + j;
-                    if (!a->bounding_box.cells[index]) continue;
-
-                    int width = j + a->position.x;
-                    int height = k + a->position.y;
-
-                    if (width == b->width-1)
-                    {
-                        can_go = false;
-                        break;
-                    }
-                }
+                a->position.x -= 1;
             }
 
-            if (can_go) a->position.x += 1;
             state->do_right_move = false;
         }
 
@@ -449,7 +639,7 @@ void update(State *state, Uint64 dt)
                 a->position.y += 1;
             }
 
-            a->grounded = true;
+            transform_to_tetrons(a, b);
             b->active = NULL;
             b->check_for_clear = true;
 
@@ -458,9 +648,22 @@ void update(State *state, Uint64 dt)
             state->do_drop = false;
         }
 
-        if ((state->do_rotate_clockwise || state->do_rotate_counter_clockwise) && (a->type != O))
+        if (state->do_rotate_clockwise || state->do_rotate_counter_clockwise)
         {
-            bool cells_transformed[16];
+            bool original_cells[16];
+            bool cells_transposed[16];
+            bool cells_reversed[16];
+
+            // Save initial state
+            // original_cells = a->bounding_box.cells;
+            for (int i = 0; i < a->bounding_box.width; i += 1)
+            {
+                for (int j = 0; j < a->bounding_box.height; j += 1)
+                {
+                    int index = j * a->bounding_box.width + i;
+                    original_cells[index] = a->bounding_box.cells[index];
+                }
+            }
 
             // Transpose
             for (int i = 0; i < a->bounding_box.width; i += 1)
@@ -468,7 +671,7 @@ void update(State *state, Uint64 dt)
                 for (int j = 0; j < a->bounding_box.height; j += 1)
                 {
                     int index = j * a->bounding_box.width + i;
-                    cells_transformed[i * a->bounding_box.height + j] = a->bounding_box.cells[index];
+                    cells_transposed[i * a->bounding_box.height + j] = a->bounding_box.cells[index];
                 }
             }
 
@@ -481,7 +684,7 @@ void update(State *state, Uint64 dt)
                     {
                         int old_index = j * a->bounding_box.height + i;
                         int new_index = j * a->bounding_box.width + ((a->bounding_box.width-1) - i);
-                        a->bounding_box.cells[new_index] = cells_transformed[old_index];
+                        cells_reversed[new_index] = cells_transposed[old_index];
                     }
                 }
 
@@ -497,11 +700,47 @@ void update(State *state, Uint64 dt)
                     {
                         int old_index = j * a->bounding_box.height + i;
                         int new_index = ((a->bounding_box.height -1) - j) * a->bounding_box.width +  i;
-                        a->bounding_box.cells[new_index] = cells_transformed[old_index];
+                        cells_reversed[new_index] = cells_transposed[old_index];
                     }
                 }
 
                 state->do_rotate_counter_clockwise = false;
+            }
+
+            // cells_reversed now contains the fully transformed grid of cells.
+            // Check that, given this new grid, we aren't colliding with anything.
+            // If we are, undo the operation.
+
+            for (int i = 0; i < a->bounding_box.width; i += 1)
+            {
+                for (int j = 0; j < a->bounding_box.height; j += 1)
+                {
+                    int index = j * a->bounding_box.width + i;
+                    a->bounding_box.cells[index] = cells_reversed[index];
+                }
+            }
+
+            // Wallbang!
+            if (collides_with_wall(a, b) || collides_with_cells(a, b))
+            {
+                a->position.x -= 1;
+                if (collides_with_wall(a, b) || collides_with_cells(a, b))
+                {
+                    a->position.x += 2;
+                    if (collides_with_wall(a, b) || collides_with_cells(a, b))
+                    {
+                        a->position.x -= 1;
+
+                        for (int i = 0; i < a->bounding_box.width; i += 1)
+                        {
+                            for (int j = 0; j < a->bounding_box.height; j += 1)
+                            {
+                                int index = j * a->bounding_box.width + i;
+                                a->bounding_box.cells[index] = original_cells[index];
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -513,66 +752,72 @@ void update(State *state, Uint64 dt)
         state->turn_timer = TICK_TIME;
         state->turn_count += 1;
 
-        // Timer ran out, move the all ungrounded tetronimoes.
-        for (int i = 0; i < b->entity_count; i += 1)
+        // Timer ran out, move the active tetronimo.
+        if (b->active)
         {
-            Tetronimo *t = &b->entities[i];
-            if (solid_below(t, b)) {
-                t->grounded = true;
+            if (solid_below(b->active, b)) {
+                transform_to_tetrons(b->active, b);
                 b->check_for_clear = true;
+                b->active = NULL;
             } else {
-                t->position.y += 1;
+                b->active->position.y += 1;
             }
-
-            // TODO(bkaylor): Jank ... 
-            if (b && b->active && b->active->grounded) b->active = NULL;
         }
 
+        // Find white rows, delete them and shift other rows down.
+        if (b->there_are_rows_to_be_cleared)
+        {
+            Tetron *grid = b->cells;
+
+            for (int row = 0; row < 20; row += 1)
+            {
+                for (int column = 0; column < 10; column += 1)
+                {
+                    Tetron *t = &grid[get_2d_index(column, row, 10)];
+                    if (!t->exists) continue;
+
+                    if (t->marked_for_delete) {
+                        // t->exists = false;
+
+                        // Bump down any rows above.
+                        for (int row_above = row; row_above > 0; row_above -= 1)
+                        {
+                            // TODO(bkaylor): There is some weirdness around positions. We never really reset them 
+                            // after a tetronimo gets converted to tetrons. So they're static ... ish.
+                            // This raw copy will work later when the position handling is fixed.
+                            // In general I'm not sure how to handle positions in a grid-based game. Keeping the
+                            // indices into the grid and the position on the entity itself in line with each other
+                            // can cause weird hard-to-find bugs like this.
+                            //
+                            // grid[get_2d_index(column, row_above, 10)] = grid[get_2d_index(column, row_above-1, 10)];
+                            //
+
+                            Tetron *destination = &grid[get_2d_index(column, row_above, 10)]; 
+                            Tetron *source      = &grid[get_2d_index(column, row_above-1, 10)];
+                            copy_tetron_to(source, destination);
+                        }
+
+                        t->marked_for_delete = false;
+                    }
+                }
+            }
+
+            b->there_are_rows_to_be_cleared = false;
+        }
     }
 
     if (b->check_for_clear)
     {
-        // Zero out a grid.
-        int grid[20][10];
-        for (int i = 0; i < 20; i += 1)
-        {
-            for (int j = 0; j < 10; j += 1)
-            {
-                grid[i][j] = -1;
-            }
-        }
-
-        // Set the cells to the id of the tetronimo filling it.
-        for (int i = 0; i < b->entity_count; i += 1)
-        {
-            Tetronimo *t = &b->entities[i];
-
-            if (t->deleted) continue;
-            if (!t->grounded) continue;
-
-            for (int j = 0; j < t->bounding_box.width; j += 1)
-            {
-                for (int k = 0; k < t->bounding_box.height; k += 1)
-                {
-                    int index = k*t->bounding_box.width + j;
-                    if (!t->bounding_box.cells[index]) continue;
-
-                    int width = j + t->position.x;
-                    int height = k + t->position.y;
-
-                    grid[height][width] = t->id;
-                }
-            }
-        }
+        Tetron *grid = b->cells;
 
         // Figure out which rows are filled.
-        bool any_rows_deleted = false;
-        for (int i = 0; i < 20; i += 1)
+        for (int row = 0; row < 20; row += 1)
         {
             bool row_is_filled = true;
-            for (int j = 0; j < 10; j += 1)
+            for (int column = 0; column < 10; column += 1)
             {
-                if (grid[i][j] == -1) {
+                Tetron *t = &grid[get_2d_index(column, row, 10)];
+                if (!t->exists) {
                     row_is_filled = false; 
                     break;
                 }
@@ -580,52 +825,19 @@ void update(State *state, Uint64 dt)
 
             if (row_is_filled) 
             {
-                for (int j = 0; j < 10; j += 1)
+                // Set cells to white and mark for delete.
+                for (int column = 0; column < 10; column += 1)
                 {
-                    // Zap cell at i,j.
-                    int id_of_tetronimo_filling_this_cell = grid[i][j];
-                    Tetronimo *t = &b->entities[id_of_tetronimo_filling_this_cell];
-
-                    for (int m = 0; m < t->bounding_box.width; m += 1)
-                    {
-                        for (int n = 0; n < t->bounding_box.height; n += 1)
-                        {
-                            int cell_x = t->position.x + m;
-                            int cell_y = t->position.y + n;
-
-                            if (cell_x == j && cell_y == i) {
-                                t->bounding_box.cells[n*t->bounding_box.width + m] = false;
-                            }
-                        }
-                    }
-
-                    // Teleport down any lines above this one.
-
-                    // TODO(bkaylor): At some point, should clean up wholly deleted tetronimoes.
-                    // t->deleted = true;
+                    Tetron *t = &grid[get_2d_index(column, row, 10)];
+                    t->marked_for_delete = true;
+                    t->color = (SDL_Color){255, 255, 255, 255};
                 }
 
-                b->score += 1;
-                any_rows_deleted = true;
+                b->there_are_rows_to_be_cleared = true;
             }
         }
 
-        if (any_rows_deleted)
-        {
-            // TODO(bkaylor): Is this the right thing to do?
-            //                Maybe tetronimoes that have been chopped don't fall, but whole lines do.
-            //                This causes some badness. When you drop a tetronimo, it snaps straight down to
-            //                the first grounded cell below it. Since we're ungrounding everything for a couple
-            //                seconds here and there, if you drop at the right time, you can drop to the bottom
-            //                row.
-
-            // Unground everything and let it fall again.
-            for (int i = 0; i < b->entity_count; i += 1)
-            {
-                Tetronimo *t = &b->entities[i];
-                t->grounded = false;
-            }
-        }
+        b->check_for_clear = false;
     }
 
     return;
