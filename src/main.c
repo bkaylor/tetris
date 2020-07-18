@@ -106,7 +106,11 @@ typedef struct {
     bool do_rotate_counter_clockwise;
 
     int turn_timer;
+    int timer;
     int turn_count;
+
+    int score_history;
+    int timer_history;
 
     bool reset;
     bool quit;
@@ -439,13 +443,36 @@ void render(SDL_Renderer *renderer, State state, TTF_Font *font)
         }
     }
 
-    // Draw text.
+    // Draw the score and timer
     char buf[50];
     int y = 0;
 
-    // DEBUG_PRINT("%d ms", state.turn_timer);
+    sprintf(buf, "%d", state.board.score);                                                  
+    draw_text(renderer, state.board.rect.x*0.8, state.board.rect.h*0.25, buf, font, (SDL_Color){225, 225, 225, 225}); 
+
+    int seconds = state.timer/1000;
+    int ms = state.timer - (seconds*1000);
+    sprintf(buf, "%d.%d", seconds, ms);                                                  
+    draw_text(renderer, state.board.rect.x*0.8, state.board.rect.h*0.25 + 25, buf, font, (SDL_Color){225, 225, 225, 225}); 
+
+    // Draw history
+    sprintf(buf, "%d", state.score_history);                                                  
+    draw_text(renderer, state.board.rect.x*0.8, state.board.rect.h*0.25 + 50, buf, font, (SDL_Color){225, 225, 225, 225}); 
+
+    int seconds_history = state.timer_history/1000;
+    int ms_history = state.timer_history - (seconds_history*1000);
+    sprintf(buf, "%d.%d", seconds_history, ms_history);                                                  
+    draw_text(renderer, state.board.rect.x*0.8, state.board.rect.h*0.25 + 75, buf, font, (SDL_Color){225, 225, 225, 225}); 
+
+    // Draw debug text.
+    /*
+    char buf[50];
+    int y = 0;
+
+    DEBUG_PRINT("%d ms", state.turn_timer);
     DEBUG_PRINT("%d lines", state.board.score);
-    // DEBUG_PRINT("%d entities", state.board.entity_count);
+    DEBUG_PRINT("%d entities", state.board.entity_count);
+    */
 
     SDL_RenderPresent(renderer);
 }
@@ -542,6 +569,10 @@ void update(State *state, Uint64 dt)
 
     if (state->reset)
     {
+        // Save last game's score.
+        state->score_history = b->score;
+        state->timer_history = state->timer; 
+
         b->width = 10;
         b->height = 20;
         b->entity_count = 0;
@@ -580,6 +611,7 @@ void update(State *state, Uint64 dt)
         state->do_down_move        = false;
         state->do_rotate_clockwise = false;
 
+        state->timer = 0;
         state->turn_timer = TICK_TIME;
         state->turn_count = 0;
 
@@ -589,7 +621,7 @@ void update(State *state, Uint64 dt)
     if (!b->active)
     {
         // Spawn a tetronimo.
-        Tetronimo t = make_tetronimo(b->next, vec2_make(b->width/2, 0));
+        Tetronimo t = make_tetronimo(b->next, vec2_make((b->width/2)-2, 0));
         b->next = (rand() % 7) + 1;
 
         b->entities[b->entity_count] = t;
@@ -648,7 +680,7 @@ void update(State *state, Uint64 dt)
             state->do_drop = false;
         }
 
-        if (state->do_rotate_clockwise || state->do_rotate_counter_clockwise)
+        if ((state->do_rotate_clockwise || state->do_rotate_counter_clockwise) && !(a->type == O))
         {
             bool original_cells[16];
             bool cells_transposed[16];
@@ -746,6 +778,7 @@ void update(State *state, Uint64 dt)
     }
 
     state->turn_timer -= dt;
+    state->timer += dt;
 
     if (state->turn_timer <= 0)
     {
@@ -834,6 +867,7 @@ void update(State *state, Uint64 dt)
                 }
 
                 b->there_are_rows_to_be_cleared = true;
+                b->score += 1;
             }
         }
 
@@ -924,7 +958,7 @@ int main(int argc, char *argv[])
 	SDL_Renderer *ren = SDL_CreateRenderer(win, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
 
 	TTF_Init();
-	TTF_Font *font = TTF_OpenFont("liberation.ttf", 12);
+	TTF_Font *font = TTF_OpenFont("liberation.ttf", 20);
 	if (!font)
 	{
 		SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Error: Font", TTF_GetError(), win);
