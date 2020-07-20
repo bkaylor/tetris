@@ -9,6 +9,7 @@
 
 #include "vec2.h"
 #include "draw.h"
+#include "button.h"
 
 #define TICK_TIME 650
 
@@ -77,6 +78,8 @@ typedef struct {
     SDL_Rect rect;
     float cell_size;
 
+    SDL_Rect pause_menu_rect;
+
     bool check_for_clear;
     bool there_are_rows_to_be_cleared;
     int score;
@@ -87,8 +90,15 @@ typedef struct {
     int y;
 } Window;
 
+typedef enum {
+    Screen_MENU,
+    Screen_GAME,
+} Screen;
+
 typedef struct {
     Window window;
+    Screen screen;
+    bool paused;
 
     struct {
         int x;
@@ -111,6 +121,8 @@ typedef struct {
 
     int score_history;
     int timer_history;
+
+    Gui gui;
 
     bool reset;
     bool quit;
@@ -292,7 +304,7 @@ bool solid_below(Tetronimo *tetronimo, Board *board)
     return false;
 }
 
-void render(SDL_Renderer *renderer, State state, TTF_Font *font)
+void render_game(SDL_Renderer *renderer, State state, TTF_Font *font)
 {
     SDL_RenderClear(renderer);
 
@@ -474,6 +486,16 @@ void render(SDL_Renderer *renderer, State state, TTF_Font *font)
     DEBUG_PRINT("%d entities", state.board.entity_count);
     */
 
+    // Draw pause menu
+    if (state.paused)
+    {
+
+        SDL_SetRenderDrawColor(renderer, 15, 15, 15, 255);
+        SDL_RenderFillRect(renderer, &state.board.pause_menu_rect);
+    }
+
+    draw_all_buttons(renderer, &state.gui);
+
     SDL_RenderPresent(renderer);
 }
 
@@ -563,8 +585,46 @@ bool collides_with_cells(Tetronimo *a, Board *b)
     return false;
 }
 
-void update(State *state, Uint64 dt) 
+void update_game(State *state, Uint64 dt) 
 {
+    if (state->paused)
+    {
+        float padding = 0.2f;
+        SDL_Rect pause_menu_rect = (SDL_Rect) {
+            state->board.rect.x + (state->board.rect.w * padding),
+            state->board.rect.y + (state->board.rect.h * padding),
+            state->board.rect.w * (1.0 - 2*padding),
+            state->board.rect.h * (1.0 - 2*padding),
+        };
+
+        state->board.pause_menu_rect = pause_menu_rect;
+
+        Gui *g = &state->gui;
+
+        new_button_stack(g, 
+                         pause_menu_rect.x + 0.4*pause_menu_rect.w, 
+                         pause_menu_rect.y + 0.3*pause_menu_rect.h, 
+                         15);
+
+        if (do_button(g, "Resume"))
+        {
+            state->paused = false;
+        }
+
+        if (do_button(g, "Menu"))
+        {
+            state->screen = Screen_MENU;
+            state->paused = false;
+        }
+
+        if (do_button(g, "Quit"))
+        {
+            state->quit = true;
+        }
+
+        return;
+    }
+
     Board *b = &state->board;
 
     if (state->reset)
@@ -879,8 +939,8 @@ void update(State *state, Uint64 dt)
 
 void get_input(State *state)
 {
-    SDL_GetMouseState(&state->mouse.x, &state->mouse.y);
-    state->mouse.clicked = false;
+    SDL_GetMouseState(&state->gui.mouse_info.x, &state->gui.mouse_info.y);
+    state->gui.mouse_info.clicked = false;
 
     SDL_Event event;
 
@@ -889,45 +949,45 @@ void get_input(State *state)
         switch (event.type)
         {
             case SDL_KEYDOWN:
-                switch (event.key.keysym.sym)
+                if (state->screen == Screen_GAME)
                 {
-                    case SDLK_ESCAPE:
-                        state->quit = true;
-                        break;
+                    if (!state->paused) // Game / Unpaused
+                    {
+                        switch (event.key.keysym.sym)
+                        {
+                            case SDLK_ESCAPE: state->paused = !state->paused; break;
+                            case SDLK_r: state->reset = true; break;
 
-                    case SDLK_r:
-                        state->reset = true;
-                        break;
+                            case SDLK_UP: state->do_drop = true; break;
+                            case SDLK_RIGHT: state->do_right_move = true; break;
+                            case SDLK_DOWN: state->do_down_move = true; break;
+                            case SDLK_LEFT: state->do_left_move = true; break;
 
-                    case SDLK_UP:
-                        state->do_drop = true;
-                        break;
-
-                    case SDLK_RIGHT:
-                        state->do_right_move = true;
-                        break;
-
-                    case SDLK_DOWN:
-                        state->do_down_move = true;
-                        break;
-
-                    case SDLK_LEFT:
-                        state->do_left_move = true;
-                        break;
-
-                    case SDLK_x:
-                        state->do_rotate_clockwise = true;
-                        break;
-
-                    case SDLK_z:
-                        state->do_rotate_counter_clockwise = true;
-                        break;
+                            case SDLK_x: state->do_rotate_clockwise = true; break;
+                            case SDLK_z: state->do_rotate_counter_clockwise = true; break;
+                        }
+                    }
+                    else // Game / Paused
+                    {
+                        switch (event.key.keysym.sym)
+                        {
+                            case SDLK_ESCAPE: state->paused = !state->paused; break;
+                        }
+                    }
+                } 
+                else // Menu
+                {
+                    switch (event.key.keysym.sym)
+                    {
+                        case SDLK_ESCAPE: state->quit = true; break;
+                    }
                 }
+
                 break;
 
             case SDL_MOUSEBUTTONDOWN:
                 if (event.button.button == SDL_BUTTON_LEFT) {
-                    state->mouse.clicked = true;
+                    state->gui.mouse_info.clicked = true;
                 }
                 break;
 
@@ -938,6 +998,81 @@ void get_input(State *state)
             default:
                 break;
         }
+    }
+}
+
+void render_menu(SDL_Renderer *renderer, State state, TTF_Font *font)
+{
+    SDL_RenderClear(renderer);
+
+    // Set background color
+    SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
+    SDL_RenderFillRect(renderer, NULL);
+
+    // Title
+    char buf[50];
+    int x = state.window.x*0.5;
+    int y = state.window.y*0.3;
+
+    sprintf(buf, "%s", "Tetris");                                                  
+    draw_text(renderer, x, y, buf, font, (SDL_Color){225, 225, 225, 225}); 
+
+
+    // Buttons
+    draw_all_buttons(renderer, &state.gui);
+
+    SDL_RenderPresent(renderer);
+}
+
+void update_menu(State *state, Uint64 dt)
+{
+    Gui *g = &state->gui;
+
+    new_button_stack(g, state->window.x/2, state->window.y/2, 10);
+
+    if (do_button(g, "Play"))
+    {
+        state->screen = Screen_GAME;
+        state->reset = true;
+    }
+
+    if (do_button(g, "Quit"))
+    {
+        state->quit = true;
+    }
+}
+
+void render(SDL_Renderer *renderer, State state, TTF_Font *font)
+{
+    switch (state.screen)
+    {
+        case Screen_GAME:
+        {
+            render_game(renderer, state, font);
+        } break;
+
+        case Screen_MENU:
+        default:
+        {
+            render_menu(renderer, state, font);
+        } break;
+    }
+}
+
+void update(State *state, Uint64 dt)
+{
+    switch (state->screen)
+    {
+        case Screen_GAME:
+        {
+            update_game(state, dt);
+        } break;
+
+        case Screen_MENU:
+        default:
+        {
+            update_menu(state, dt);
+        } break;
     }
 }
 
@@ -968,14 +1103,21 @@ int main(int argc, char *argv[])
     srand(time(NULL));
 
     State state;
+    state.screen = Screen_MENU;
     state.quit = false;
     state.reset = true;
+    state.timer = 0;
+    state.board.score = 0;
+    
+    gui_init(&state.gui, font);
 
     Uint64 frame_time_start, frame_time_finish, delta_t = 0;
 
     while (!state.quit)
     {
         frame_time_start = SDL_GetTicks();
+
+        gui_frame_init(&state.gui);
 
         SDL_PumpEvents();
         get_input(&state);
@@ -985,8 +1127,21 @@ int main(int argc, char *argv[])
             int x, y;
             SDL_GetWindowSize(win, &state.window.x, &state.window.y);
 
+            if (state.screen == Screen_GAME)
+            {
+                update_game(&state, delta_t);
+                render_game(ren, state, font);
+            }
+            else
+            {
+                update_menu(&state, delta_t);
+                render_menu(ren, state, font);
+            }
+
+            /*
             update(&state, delta_t);
             render(ren, state, font);
+            */
 
             frame_time_finish = SDL_GetTicks();
             delta_t = frame_time_finish - frame_time_start;

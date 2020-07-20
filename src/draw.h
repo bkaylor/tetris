@@ -11,6 +11,27 @@ void draw_text(SDL_Renderer *renderer, int x, int y, char *string, TTF_Font *fon
     SDL_DestroyTexture(texture);
 }
 
+void draw_centered_text(SDL_Renderer *renderer, SDL_Rect rect, char *string, TTF_Font *font, SDL_Color font_color)
+{
+    SDL_Surface *surface = TTF_RenderText_Blended(font, string, font_color);
+    SDL_Texture *texture = SDL_CreateTextureFromSurface(renderer, surface);
+
+    int w_from_texture, h_from_texture;
+    SDL_QueryTexture(texture, NULL, NULL, &w_from_texture, &h_from_texture);
+
+    SDL_Rect draw_rect = {
+        rect.x + rect.w/2 - w_from_texture/2, 
+        rect.y + rect.h/2 - h_from_texture/2, 
+        w_from_texture, 
+        h_from_texture
+    };
+
+    SDL_RenderCopy(renderer, texture, NULL, &draw_rect);
+
+    SDL_FreeSurface(surface);
+    SDL_DestroyTexture(texture);
+}
+
 void draw_circle(SDL_Renderer *renderer, int32_t centreX, int32_t centreY, int32_t radius)
 {
    const int32_t diameter = (radius * 2);
