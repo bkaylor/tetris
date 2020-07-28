@@ -7,6 +7,9 @@ A tetris game.
 `run.bat`
 
 `Arrow keys` to move the piece (`Up arrow` drops the piece).
+
 `Z` to rotate the piece counter-clockwise.
+
 `X` to rotate the piece clockwise.
+
 `ESC` to pause.
