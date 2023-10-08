@@ -1,7 +1,9 @@
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
 #include <stdbool.h>
+#include <string.h>
 
 #include "SDL.h"
 #include "SDL_ttf.h"
@@ -19,14 +21,13 @@
         y += 15;                                                               \
     } while (0)
 
-
 typedef enum {
-    I = 1, 
-    O, 
-    T, 
-    J, 
-    L, 
-    S, 
+    I = 1,
+    O,
+    T,
+    J,
+    L,
+    S,
     Z,
     DOT,
 } Tetronimo_Type;
@@ -115,12 +116,12 @@ typedef struct {
     bool do_rotate_clockwise;
     bool do_rotate_counter_clockwise;
 
-    int turn_timer;
-    int timer;
+    Uint64 turn_timer;
+    Uint64 timer;
     int turn_count;
 
     int score_history;
-    int timer_history;
+    Uint64 timer_history;
 
     Gui gui;
 
@@ -141,6 +142,7 @@ SDL_Color get_color(Tetronimo_Type type)
         case L:   c = (SDL_Color){255, 165, 0,   255}; break;
         case S:   c = (SDL_Color){0,   255, 0,   255}; break;
         case Z:   c = (SDL_Color){255, 0,   0,   255}; break;
+        default:
         case DOT: c = (SDL_Color){35,  35,  35,  255}; break;
     }
 
@@ -273,6 +275,12 @@ Tetronimo make_tetronimo(Tetronimo_Type type, vec2 position)
     return t;
 }
 
+int get_2d_index(int w, int h, int width)
+{
+    return(h*width + w);
+}
+
+
 bool solid_below(Tetronimo *tetronimo, Board *board)
 {
     for (int i = 0; i < tetronimo->bounding_box.width; i += 1)
@@ -282,8 +290,8 @@ bool solid_below(Tetronimo *tetronimo, Board *board)
             int index = get_2d_index(i, j, tetronimo->bounding_box.width);
             if (!tetronimo->bounding_box.cells[index]) continue;
 
-            int width = i + tetronimo->position.x;
-            int height = j + tetronimo->position.y;
+            int width = i + (int)tetronimo->position.x;
+            int height = j + (int)tetronimo->position.y;
 
             // Check if we hit the floor.
             if (height == board->height-1) return true;
@@ -326,16 +334,16 @@ void render_game(SDL_Renderer *renderer, State state, TTF_Font *font)
         if (!t->exists) continue;
 
         SDL_Rect rect = (SDL_Rect){
-            state.board.rect.x + ((t->position.x) * state.board.cell_size),
-            state.board.rect.y + ((t->position.y) * state.board.cell_size),
-            state.board.cell_size,
-            state.board.cell_size,
+            (int)(state.board.rect.x + ((t->position.x) * state.board.cell_size)),
+            (int)(state.board.rect.y + ((t->position.y) * state.board.cell_size)),
+            (int)(state.board.cell_size),
+            (int)(state.board.cell_size),
         };
 
-        rect.x += cell_padding_abs;
-        rect.y += cell_padding_abs;
-        rect.w -= 2*cell_padding_abs;
-        rect.h -= 2*cell_padding_abs;
+        rect.x += (int)(cell_padding_abs);
+        rect.y += (int)(cell_padding_abs);
+        rect.w -= (int)(2*cell_padding_abs);
+        rect.h -= (int)(2*cell_padding_abs);
 
         SDL_SetRenderDrawColor(renderer, t->color.r, t->color.g, t->color.b, 255);
         SDL_RenderFillRect(renderer, &rect);
@@ -362,10 +370,10 @@ void render_game(SDL_Renderer *renderer, State state, TTF_Font *font)
                 if (ghost.bounding_box.cells[get_2d_index(i, j, ghost.bounding_box.width)])
                 {
                     SDL_Rect rect = (SDL_Rect){
-                        state.board.rect.x + ((ghost.position.x + i) * state.board.cell_size),
-                        state.board.rect.y + ((ghost.position.y + j) * state.board.cell_size),
-                        state.board.cell_size,
-                        state.board.cell_size,
+                        (int)(state.board.rect.x + ((ghost.position.x + i) * state.board.cell_size)),
+                        (int)(state.board.rect.y + ((ghost.position.y + j) * state.board.cell_size)),
+                        (int)(state.board.cell_size),
+                        (int)(state.board.cell_size),
                     };
 
                     /*
@@ -390,16 +398,16 @@ void render_game(SDL_Renderer *renderer, State state, TTF_Font *font)
                 if (t->bounding_box.cells[get_2d_index(i, j, t->bounding_box.width)])
                 {
                     SDL_Rect rect = (SDL_Rect){
-                        state.board.rect.x + ((t->position.x + i) * state.board.cell_size),
-                        state.board.rect.y + ((t->position.y + j) * state.board.cell_size),
-                        state.board.cell_size,
-                        state.board.cell_size,
+                        (int)(state.board.rect.x + ((t->position.x + i) * state.board.cell_size)),
+                        (int)(state.board.rect.y + ((t->position.y + j) * state.board.cell_size)),
+                        (int)(state.board.cell_size),
+                        (int)(state.board.cell_size),
                     };
 
-                    rect.x += cell_padding_abs;
-                    rect.y += cell_padding_abs;
-                    rect.w -= 2*cell_padding_abs;
-                    rect.h -= 2*cell_padding_abs;
+                    rect.x += (int)(cell_padding_abs);
+                    rect.y += (int)(cell_padding_abs);
+                    rect.w -= (int)(2*cell_padding_abs);
+                    rect.h -= (int)(2*cell_padding_abs);
 
                     SDL_RenderFillRect(renderer, &rect);
                 }
@@ -408,13 +416,13 @@ void render_game(SDL_Renderer *renderer, State state, TTF_Font *font)
 
         /*
         SDL_SetRenderDrawColor(renderer, 255, 100, 255, 255);
-        draw_circle(renderer, 
+        draw_circle(renderer,
                     state.board.rect.x + ((t->position.x) * state.board.cell_size),
                     state.board.rect.y + ((t->position.y) * state.board.cell_size),
                     3);
 
         SDL_SetRenderDrawColor(renderer, 255, 255, 255, 255);
-        draw_circle(renderer, 
+        draw_circle(renderer,
                     state.board.rect.x + ((t->position.x + t->bounding_box.pivot.x) * state.board.cell_size),
                     state.board.rect.y + ((t->position.y + t->bounding_box.pivot.y) * state.board.cell_size),
                     3);
@@ -423,10 +431,10 @@ void render_game(SDL_Renderer *renderer, State state, TTF_Font *font)
 
     // Draw the next tetron
     SDL_Rect next_rect = (SDL_Rect){
-        state.board.rect.x + (state.board.rect.w * 1.2),
-        state.board.rect.y + (state.board.rect.h / 4) - (state.board.cell_size * 2),
-        state.board.cell_size * 4,
-        state.board.cell_size * 4,
+        (int)(state.board.rect.x + (state.board.rect.w * 1.2)),
+        (int)(state.board.rect.y + (state.board.rect.h / 4) - (state.board.cell_size * 2)),
+        (int)(state.board.cell_size * 4),
+        (int)(state.board.cell_size * 4),
     };
 
     Tetronimo next = make_tetronimo(state.board.next, vec2_make(0.0f, 0.0f));
@@ -439,16 +447,16 @@ void render_game(SDL_Renderer *renderer, State state, TTF_Font *font)
             if (next.bounding_box.cells[get_2d_index(i, j, next.bounding_box.width)])
             {
                 SDL_Rect rect = (SDL_Rect){
-                    next_rect.x + ((next.position.x + i) * state.board.cell_size),
-                    next_rect.y + ((next.position.y + j) * state.board.cell_size),
-                    state.board.cell_size,
-                    state.board.cell_size,
+                    (int)(next_rect.x + ((next.position.x + i) * state.board.cell_size)),
+                    (int)(next_rect.y + ((next.position.y + j) * state.board.cell_size)),
+                    (int)(state.board.cell_size),
+                    (int)(state.board.cell_size),
                 };
 
-                rect.x += cell_padding_abs;
-                rect.y += cell_padding_abs;
-                rect.w -= 2*cell_padding_abs;
-                rect.h -= 2*cell_padding_abs;
+                rect.x += (int)(cell_padding_abs);
+                rect.y += (int)(cell_padding_abs);
+                rect.w -= (int)(2*cell_padding_abs);
+                rect.h -= (int)(2*cell_padding_abs);
 
                 SDL_RenderFillRect(renderer, &rect);
             }
@@ -457,24 +465,23 @@ void render_game(SDL_Renderer *renderer, State state, TTF_Font *font)
 
     // Draw the score and timer
     char buf[50];
-    int y = 0;
 
-    sprintf(buf, "%d", state.board.score);                                                  
-    draw_text(renderer, state.board.rect.x*0.8, state.board.rect.h*0.25, buf, font, (SDL_Color){225, 225, 225, 225}); 
+    sprintf_s(buf, 50, "%d", state.board.score);
+    draw_text(renderer, (int)(state.board.rect.x*0.8f), (int)(state.board.rect.h*0.25f), buf, font, (SDL_Color){225, 225, 225, 225});
 
-    int seconds = state.timer/1000;
-    int ms = state.timer - (seconds*1000);
-    sprintf(buf, "%d.%d", seconds, ms);                                                  
-    draw_text(renderer, state.board.rect.x*0.8, state.board.rect.h*0.25 + 25, buf, font, (SDL_Color){225, 225, 225, 225}); 
+    Uint64 seconds = state.timer/1000;
+    Uint64 ms = state.timer - (seconds*1000);
+    sprintf_s(buf, 50, "%lld.%lld", seconds, ms);
+    draw_text(renderer, (int)(state.board.rect.x*0.8), (int)(state.board.rect.h*0.25f + 25.0f), buf, font, (SDL_Color){225, 225, 225, 225});
 
     // Draw history
-    sprintf(buf, "%d", state.score_history);                                                  
-    draw_text(renderer, state.board.rect.x*0.8, state.board.rect.h*0.25 + 50, buf, font, (SDL_Color){225, 225, 225, 225}); 
+    sprintf_s(buf, 50, "%d", state.score_history);
+    draw_text(renderer, (int)(state.board.rect.x*0.8f), (int)(state.board.rect.h*0.25f + 50.0f), buf, font, (SDL_Color){225, 225, 225, 225});
 
-    int seconds_history = state.timer_history/1000;
-    int ms_history = state.timer_history - (seconds_history*1000);
-    sprintf(buf, "%d.%d", seconds_history, ms_history);                                                  
-    draw_text(renderer, state.board.rect.x*0.8, state.board.rect.h*0.25 + 75, buf, font, (SDL_Color){225, 225, 225, 225}); 
+    Uint64 seconds_history = state.timer_history/1000;
+    Uint64 ms_history = state.timer_history - (seconds_history*1000);
+    sprintf_s(buf, 50, "%lld.%lld", seconds_history, ms_history);
+    draw_text(renderer, (int)(state.board.rect.x*0.8f), (int)(state.board.rect.h*0.25f + 75.0f), buf, font, (SDL_Color){225, 225, 225, 225});
 
     // Draw debug text.
     /*
@@ -499,11 +506,6 @@ void render_game(SDL_Renderer *renderer, State state, TTF_Font *font)
     SDL_RenderPresent(renderer);
 }
 
-int get_2d_index(int w, int h, int width)
-{
-    return(h*width + w);
-}
-
 void copy_tetron_to(Tetron *source, Tetron *destination)
 {
     destination->id = source->id;
@@ -522,15 +524,15 @@ void transform_to_tetrons(Tetronimo *tetronimo, Board *board)
             int index = get_2d_index(i, j, tetronimo->bounding_box.width);
             if (!tetronimo->bounding_box.cells[index]) continue;
 
-            int x = tetronimo->position.x + i;
-            int y = tetronimo->position.y + j;
+            int x = (int)tetronimo->position.x + i;
+            int y = (int)tetronimo->position.y + j;
 
             Tetron t;
             t.id = 0;
             t.color = tetronimo->color;
             t.marked_for_delete = false;
             t.exists = true;
-            t.position = vec2_make(x, y);
+            t.position = vec2_make((float)x, (float)y);
 
             board->cells[get_2d_index(x, y, 10)] = t;
             // board->cell_count += 1;
@@ -548,8 +550,8 @@ bool collides_with_wall(Tetronimo *a, Board *b)
 
             if (!a->bounding_box.cells[index]) continue;
 
-            int width = j + a->position.x;
-            int height = k + a->position.y;
+            int width = j + (int)a->position.x;
+            // int height = k + (int)a->position.y;
 
             if (width < 0 || width >= b->width)
             {
@@ -571,8 +573,8 @@ bool collides_with_cells(Tetronimo *a, Board *b)
 
             if (!a->bounding_box.cells[index]) continue;
 
-            int width = j + a->position.x;
-            int height = k + a->position.y;
+            int width = j + (int)a->position.x;
+            int height = k + (int)a->position.y;
 
             int world_index = get_2d_index(width, height, 10);
             for (int i = 0; i < b->cell_count; i += 1)
@@ -585,25 +587,25 @@ bool collides_with_cells(Tetronimo *a, Board *b)
     return false;
 }
 
-void update_game(State *state, Uint64 dt) 
+void update_game(State *state, Uint64 dt)
 {
     if (state->paused)
     {
         float padding = 0.2f;
         SDL_Rect pause_menu_rect = (SDL_Rect) {
-            state->board.rect.x + (state->board.rect.w * padding),
-            state->board.rect.y + (state->board.rect.h * padding),
-            state->board.rect.w * (1.0 - 2*padding),
-            state->board.rect.h * (1.0 - 2*padding),
+            (int)(state->board.rect.x + (state->board.rect.w * padding)),
+            (int)(state->board.rect.y + (state->board.rect.h * padding)),
+            (int)(state->board.rect.w * (1.0 - 2*padding)),
+            (int)(state->board.rect.h * (1.0 - 2*padding)),
         };
 
         state->board.pause_menu_rect = pause_menu_rect;
 
         Gui *g = &state->gui;
 
-        new_button_stack(g, 
-                         pause_menu_rect.x + 0.4*pause_menu_rect.w, 
-                         pause_menu_rect.y + 0.3*pause_menu_rect.h, 
+        new_button_stack(g,
+                         pause_menu_rect.x + (int)(0.4f*pause_menu_rect.w),
+                         pause_menu_rect.y + (int)(0.3f*pause_menu_rect.h),
                          15);
 
         if (do_button(g, "Resume"))
@@ -631,20 +633,20 @@ void update_game(State *state, Uint64 dt)
     {
         // Save last game's score.
         state->score_history = b->score;
-        state->timer_history = state->timer; 
+        state->timer_history = state->timer;
 
         b->width = 10;
         b->height = 20;
         b->entity_count = 0;
 
-        float cell_width  = state->window.x / b->width;
-        float cell_height = state->window.y / b->height;
+        float cell_width  = (float)(state->window.x / b->width);
+        float cell_height = (float)(state->window.y / b->height);
 
         float cell_size = cell_width < cell_height ? cell_width : cell_height;
         b->cell_size = cell_size;
 
-        b->rect.w = cell_size * b->width;
-        b->rect.h = cell_size * b->height;
+        b->rect.w = (int)(cell_size * b->width);
+        b->rect.h = (int)(cell_size * b->height);
 
         b->rect.y = state->window.y - b->rect.h;
         b->rect.x = (state->window.x/2) - (b->rect.w/2);
@@ -672,7 +674,7 @@ void update_game(State *state, Uint64 dt)
         state->do_rotate_clockwise = false;
 
         state->timer = 0;
-        state->turn_timer = TICK_TIME;
+        state->turn_timer = 0;
         state->turn_count = 0;
 
         state->reset = false;
@@ -681,7 +683,7 @@ void update_game(State *state, Uint64 dt)
     if (!b->active)
     {
         // Spawn a tetronimo.
-        Tetronimo t = make_tetronimo(b->next, vec2_make((b->width/2)-2, 0));
+        Tetronimo t = make_tetronimo(b->next, vec2_make((float)((b->width/2)-2), 0));
         b->next = (rand() % 7) + 1;
 
         b->entities[b->entity_count] = t;
@@ -699,7 +701,7 @@ void update_game(State *state, Uint64 dt)
         if (state->do_left_move)
         {
             a->position.x -= 1;
-            if (collides_with_wall(a, b) || collides_with_cells(a, b)) 
+            if (collides_with_wall(a, b) || collides_with_cells(a, b))
             {
                 a->position.x += 1;
             }
@@ -710,7 +712,7 @@ void update_game(State *state, Uint64 dt)
         if (state->do_right_move)
         {
             a->position.x += 1;
-            if (collides_with_wall(a, b) || collides_with_cells(a, b)) 
+            if (collides_with_wall(a, b) || collides_with_cells(a, b))
             {
                 a->position.x -= 1;
             }
@@ -720,7 +722,7 @@ void update_game(State *state, Uint64 dt)
 
         if (state->do_down_move)
         {
-            state->turn_timer = 0;
+            state->turn_timer = TICK_TIME;
             state->do_down_move = false;
         }
 
@@ -735,7 +737,7 @@ void update_game(State *state, Uint64 dt)
             b->active = NULL;
             b->check_for_clear = true;
 
-            state->turn_timer = 0;
+            state->turn_timer = TICK_TIME;
 
             state->do_drop = false;
         }
@@ -782,10 +784,10 @@ void update_game(State *state, Uint64 dt)
 
                 state->do_rotate_clockwise = false;
             }
-            
+
             if (state->do_rotate_counter_clockwise)
             {
-                // Reverse columns 
+                // Reverse columns
                 for (int i = 0; i < a->bounding_box.width; i += 1)
                 {
                     for (int j = 0; j < a->bounding_box.height; j += 1)
@@ -837,12 +839,12 @@ void update_game(State *state, Uint64 dt)
         }
     }
 
-    state->turn_timer -= dt;
+    state->turn_timer += dt;
     state->timer += dt;
 
-    if (state->turn_timer <= 0)
+    if (state->turn_timer >= TICK_TIME)
     {
-        state->turn_timer = TICK_TIME;
+        state->turn_timer = 0;
         state->turn_count += 1;
 
         // Timer ran out, move the active tetronimo.
@@ -875,7 +877,7 @@ void update_game(State *state, Uint64 dt)
                         // Bump down any rows above.
                         for (int row_above = row; row_above > 0; row_above -= 1)
                         {
-                            // TODO(bkaylor): There is some weirdness around positions. We never really reset them 
+                            // TODO(bkaylor): There is some weirdness around positions. We never really reset them
                             // after a tetronimo gets converted to tetrons. So they're static ... ish.
                             // This raw copy will work later when the position handling is fixed.
                             // In general I'm not sure how to handle positions in a grid-based game. Keeping the
@@ -885,7 +887,7 @@ void update_game(State *state, Uint64 dt)
                             // grid[get_2d_index(column, row_above, 10)] = grid[get_2d_index(column, row_above-1, 10)];
                             //
 
-                            Tetron *destination = &grid[get_2d_index(column, row_above, 10)]; 
+                            Tetron *destination = &grid[get_2d_index(column, row_above, 10)];
                             Tetron *source      = &grid[get_2d_index(column, row_above-1, 10)];
                             copy_tetron_to(source, destination);
                         }
@@ -911,12 +913,12 @@ void update_game(State *state, Uint64 dt)
             {
                 Tetron *t = &grid[get_2d_index(column, row, 10)];
                 if (!t->exists) {
-                    row_is_filled = false; 
+                    row_is_filled = false;
                     break;
                 }
             }
 
-            if (row_is_filled) 
+            if (row_is_filled)
             {
                 // Set cells to white and mark for delete.
                 for (int column = 0; column < 10; column += 1)
@@ -974,7 +976,7 @@ void get_input(State *state)
                             case SDLK_ESCAPE: state->paused = !state->paused; break;
                         }
                     }
-                } 
+                }
                 else // Menu
                 {
                     switch (event.key.keysym.sym)
@@ -1011,11 +1013,11 @@ void render_menu(SDL_Renderer *renderer, State state, TTF_Font *font)
 
     // Title
     char buf[50];
-    int x = state.window.x*0.5;
-    int y = state.window.y*0.3;
+    int x = (int)(state.window.x*0.5f);
+    int y = (int)(state.window.y*0.3f);
 
-    sprintf(buf, "%s", "Tetris");                                                  
-    draw_text(renderer, x, y, buf, font, (SDL_Color){225, 225, 225, 225}); 
+    sprintf_s(buf, 50, "%s", "Tetris");
+    draw_text(renderer, x, y, buf, font, (SDL_Color){225, 225, 225, 225});
 
 
     // Buttons
@@ -1024,7 +1026,7 @@ void render_menu(SDL_Renderer *renderer, State state, TTF_Font *font)
     SDL_RenderPresent(renderer);
 }
 
-void update_menu(State *state, Uint64 dt)
+void update_menu(State *state)
 {
     Gui *g = &state->gui;
 
@@ -1071,13 +1073,16 @@ void update(State *state, Uint64 dt)
         case Screen_MENU:
         default:
         {
-            update_menu(state, dt);
+            update_menu(state);
         } break;
     }
 }
 
 int main(int argc, char *argv[])
 {
+    (void)argc;
+    (void)argv;
+
 	SDL_Init(SDL_INIT_EVERYTHING);
     IMG_Init(IMG_INIT_PNG);
 
@@ -1100,7 +1105,7 @@ int main(int argc, char *argv[])
 		return -666;
 	}
 
-    srand(time(NULL));
+    srand((unsigned int)time(0));
 
     State state;
     state.screen = Screen_MENU;
@@ -1108,7 +1113,7 @@ int main(int argc, char *argv[])
     state.reset = true;
     state.timer = 0;
     state.board.score = 0;
-    
+
     gui_init(&state.gui, font);
 
     Uint64 frame_time_start, frame_time_finish, delta_t = 0;
@@ -1124,7 +1129,6 @@ int main(int argc, char *argv[])
 
         if (!state.quit)
         {
-            int x, y;
             SDL_GetWindowSize(win, &state.window.x, &state.window.y);
 
             if (state.screen == Screen_GAME)
@@ -1134,7 +1138,7 @@ int main(int argc, char *argv[])
             }
             else
             {
-                update_menu(&state, delta_t);
+                update_menu(&state);
                 render_menu(ren, state, font);
             }
 

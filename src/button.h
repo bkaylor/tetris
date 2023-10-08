@@ -147,14 +147,14 @@ bool do_button(Gui *g, char *text)
 void draw_button(SDL_Renderer *renderer, Button button)
 {
     SDL_SetRenderDrawColor(renderer, 
-                           button.style.color.r * 0.7, 
-                           button.style.color.g * 0.7, 
-                           button.style.color.b * 0.7, 
-                           button.style.color.a);
+                           (Uint8)(button.style.color.r * 0.7f), 
+                           (Uint8)(button.style.color.g * 0.7f), 
+                           (Uint8)(button.style.color.b * 0.7f), 
+                           (Uint8)(button.style.color.a));
 
     SDL_Rect shadow_rect = {
-        button.rect.x + button.rect.w * 0.04,
-        button.rect.y + button.rect.w * 0.04,
+        (int)(button.rect.x + button.rect.w * 0.04f),
+        (int)(button.rect.y + button.rect.w * 0.04f),
         button.rect.w,
         button.rect.h
     };
@@ -163,10 +163,10 @@ void draw_button(SDL_Renderer *renderer, Button button)
 
     if (button._hovered) {
         SDL_SetRenderDrawColor(renderer, 
-                               button.style.color.r * 1.5, 
-                               button.style.color.g * 1.5, 
-                               button.style.color.b * 1.5, 
-                               button.style.color.a);
+                               (Uint8)(button.style.color.r * 1.5f), 
+                               (Uint8)(button.style.color.g * 1.5f), 
+                               (Uint8)(button.style.color.b * 1.5f), 
+                               (Uint8)(button.style.color.a));
     } else {
         SDL_SetRenderDrawColor(renderer, 
                                button.style.color.r, 
